@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Going On</title>
+<meta name="theme-color" content="#b3532e">
+<meta name="robots" content="noindex, nofollow">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<style>
+:root{--bg:#f7f6f3;--card:#fff;--ink:#1a1a1a;--muted:#6b6b6b;--line:#e3e1db;--accent:#b3532e;--accent-ink:#fff}
+@media(prefers-color-scheme:dark){:root{--bg:#161513;--card:#211f1c;--ink:#ece9e2;--muted:#9b968c;--line:#35322c;--accent:#e08050;--accent-ink:#1a1a1a}}
+*{box-sizing:border-box;margin:0}
+body{font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink);
+ min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
+form{width:100%;max-width:360px;display:flex;flex-direction:column;gap:12px;text-align:center}
+h1{font-size:1.3em} p{color:var(--muted);font-size:.9em}
+input[type=password]{font:inherit;color:inherit;border:1px solid var(--line);background:var(--card);border-radius:10px;padding:12px}
+button{font:inherit;background:var(--accent);color:var(--accent-ink);border:none;border-radius:10px;padding:12px;font-weight:600;cursor:pointer}
+button:disabled{opacity:.6}
+label{font-size:.85em;color:var(--muted);display:flex;gap:8px;justify-content:center;align-items:center}
+#err{color:var(--accent);font-size:.9em;min-height:1.2em}
+</style>
+</head>
+<body>
+<form id="f" style="display:none">
+  <h1>🔒 Locked</h1>
+  <p>Enter your passphrase.</p>
+  <input type="password" id="pass" autocomplete="current-password" placeholder="Passphrase" required>
+  <label><input type="checkbox" id="remember" checked> Remember on this phone</label>
+  <button id="go">Unlock</button>
+  <div id="err"></div>
+</form>
+<script>
+// Everything (the app and its data) is in data.enc, encrypted with the
+// owner's passphrase (AES-GCM, PBKDF2-SHA256). Nothing readable is public.
+const K='wgo.pass';
+const get=()=>{try{return JSON.parse(localStorage.getItem(K));}catch{return null;}};
+const put=v=>{try{localStorage.setItem(K,JSON.stringify(v));}catch{}};
+async function decrypt(box,pass){
+  const b=x=>Uint8Array.from(atob(x),c=>c.charCodeAt(0));
+  const km=await crypto.subtle.importKey('raw',new TextEncoder().encode(pass),'PBKDF2',false,['deriveKey']);
+  const key=await crypto.subtle.deriveKey({name:'PBKDF2',salt:b(box.salt),iterations:box.iter,hash:'SHA-256'},
+    km,{name:'AES-GCM',length:256},false,['decrypt']);
+  return JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({name:'AES-GCM',iv:b(box.iv)},key,b(box.ct))));
+}
+async function open(pass,remember){
+  const box=await fetch('data.enc',{cache:'no-cache'}).then(r=>r.json());
+  const d=await decrypt(box,pass);              // throws on a wrong passphrase
+  if(remember)put(pass);
+  window.WGO_DATA=d.data;
+  document.open();document.write(d.app);document.close();
+}
+const f=document.getElementById('f');
+function ask(msg){f.style.display='flex';document.getElementById('err').textContent=msg||'';document.getElementById('pass').focus();}
+f.onsubmit=async e=>{e.preventDefault();const g=document.getElementById('go');g.disabled=true;g.textContent='Unlocking…';
+  try{await open(document.getElementById('pass').value,document.getElementById('remember').checked);}
+  catch{g.disabled=false;g.textContent='Unlock';ask("That passphrase didn't work — try again.");}};
+const saved=get();
+if(saved)open(saved,false).catch(()=>{put(null);ask();});else ask();
+</script>
+</body>
+</html>
